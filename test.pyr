@@ -1,0 +1,16 @@
+
+BASIC(
+
+// Test of a simple Pyrite-project standalone program
+// Just print the command line arguments
+
+function MAIN as (args as stringArray) of int do
+	print(str("Command line args:"))
+	var(i as int)
+	for i in 0 upto arraylen(args) do
+		print(join(str("  "), elem(args, i)))
+	end
+	return 0 end
+end
+
+)	// Can't get rid of the outermost block

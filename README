@@ -1,0 +1,245 @@
+
+ Pyrite:
+ A BASIC "compiler" implemented entirely using the C macro system
+ 
+ This project is entirely public domain
+ (I will not be held responsible for this madness.)
+
+Pyrite uses a largish number of C preprocessor macros to build a BASIC-style
+syntax layer on top of C. It requires a C99-compliant preprocessor (for the
+variadic macros), and for various reasons will not work with C++ due to the
+nature of the output code. Heavy-duty use of macros means that a powerful
+preprocessor like GCC's will probably give best results.
+
+Features:
+  - BASIC-like syntax forms
+  - garbage collection
+  - exceptions
+  - user-defined objects
+  - arrays
+  - string and collection methods (not yet included)
+
+The project consists of the following files:
+  README : this document
+  pyrite.h : the main include to use, defines BASIC syntax forms
+  pyrite-lib.h : declares the Pyrite runtime functions and other things
+                 (included by pyrite.h)
+  pyrite-lib.c : implements the runtime features declared in pyrite-lib.h;
+                 link against this when compiling
+  cmacros.h : generic metaprogramming library (not directly related to Pyrite)
+  pyrite-project.c : a C "wrapper" project file to allow writing whole programs
+                     using only Pyrite source code
+  pyrite-undefs.h : #undef directives for the Pyrite macros most likely to mess
+                    up C code: necessary for writing C after a Pyrite block
+  test.c : an example program that tests actually very little
+  test.pyr : a minimal Pyrite program to demonstrate the project system
+
+You can compile the test file with:
+  gcc -std=c99 pyrite-lib.c test.c -o test
+
+pyrite-project.c is a stub application intended to hide most of the necessary C
+boilerplate so that a program may be presented as though written entirely in
+BASIC. It sets up the GC, puts the command line arguments into a data structure,
+and passes them to a function called MAIN expected to be found in Pyrite code.
+Pass the name of your source file to GCC with -DPYRITE_PROJECT=\"myFile.pyr\"
+and it will include it in the right place. The only concession to the syntax of
+C is that the Pyrite code must still be wrapped in a BASIC() form.
+
+Pyrite code may be included in a C file in much the same way: #include the
+syntax definitions in pyrite.h, enclose Pyrite code in a BASIC() block, and
+#undef the syntax when done using pyrite-undefs.h, as it will otherwise
+interfere with the ability to write in normal C.
+
+
+ Pyrite syntax:
+================
+
+Pyrite introduces a number of syntax forms, as follows. Short examples of all
+forms may also be found at the bottom of pyrite.h.
+
+Function definition:
+
+function NAME as (arg0 as TYPE, arg1 as TYPE) of RETTYPE do
+	// ...
+end
+
+This form declares a function named NAME, with arguments arg0 and arg1 of type
+'TYPE', returning a value of type RETTYPE. A nullary function takes 'none' as
+its argument list; a void function may have 'void' as its return type.
+There are also allowances for the initial declaration to more closely resemble
+a C function name, but that doesn't play well with the GC.
+
+Forward declaration:
+
+declare(f6 as (IntF, int) of void,
+		f7 as (Vector3) of int)
+
+Forward declarations are required in the same way as in C, if a function is to
+be used before its point of definition.
+Nullary functions must be declared with an empty argument list here.
+
+Type declaration:
+
+functype(IntF, ((int), void) )
+functype(Op, ((float, float), float))
+arraytype(IntF)
+
+type MyType
+	field x as int, y as int
+	field f as IntF
+endtype
+
+Since variable declaration only works with named types, these forms must be used
+to declare types that can then be attached to variables.
+
+'functype' declares a typedef for a function pointer type: in the above example
+it creates the types 'IntF', for functions that take one int and return void;
+and 'Op', for those that take two floats and return one float.
+
+'arraytype' declares the a type for arrays containing the passed type. So the
+above example declares a new type named 'IntFArray' that can store IntF values.
+'arraytype' is called automatically by 'type' and 'functype', and is not
+generally needed in user code.
+
+'type' declares a record with the given fields. Records are always reference
+objects and, like strings and arrays, are garbage-collected. Record variables
+may be null; new values must be created with new(TypeName).
+
+Arrays and strings:
+
+a = array(int, 10)
+elem(a, 0) = foo
+bar = elem(a, 1)
+s = str("foobar")
+
+Arrays are created with the 'array' command, taking a type and a size. Their
+elements are accessed via the 'elem' operation, which is essentially the same as
+C's [] indexing. Strings literals are created using the str() form around a
+const char, or by using other string functions.
+
+Loops:
+
+while condition do
+	//...
+end
+
+for x in 0 upto 10 do
+	//...
+end
+
+for x in 10 downto 0 do
+	//...
+end
+
+for x in 0 to 9 do
+	//...
+end
+
+for x in 0 to 10 step 2 do
+	//...
+end
+
+for e in list do
+	//...
+end
+
+repeat
+	//...
+forever
+
+repeat
+	//...
+until (condition)
+
+There are a number of looping forms available. While loops are similar to their
+C counterparts. Repeat/forever is an infinite loop; repeat/until is similar to
+C's do/while except with a negative condition check. The argument to until must
+be parenthesized.
+
+There are several 'for' variants available. The first three all iterate over
+integers; the upto and downto forms stop short of their target, while 'to'
+will try to finish *on* the target. The 'to' form may also take an optional
+'step' value (the step is implicitly 1 or -1 when using upto and downto). It
+is also possible to iterate over elements of a collection; for this to work, the
+index variable must be of the right type, and the collection must support the
+'getIterator', 'hasNext' and 'next' functions (currently this functionality is
+not complete and Iterator is not defined).
+
+Selection:
+
+if a then b else c
+
+if a do
+	b()
+elseif c do
+	d()
+elsedo
+	e()
+end
+
+select x in
+	case a, b do
+		print(a)
+	case c, d do
+		print(d)
+	default
+		print(0)
+end
+
+The "inline" if form at the top is limited in the same way as a braceless 'if'
+in C: it is not possible for its branches to contain multiple statements. Doing
+so will lead to program errors. Notice that the block-if form requires the use
+of 'elsedo' rather than 'else'. 'select' may be used to select an integer from
+a list of options: each is tried in sequence and the case values may be function
+calls, side-effectful, etc.
+
+Exceptions:
+
+try
+	something()
+catch(Vector3)
+	handle((Vector3)exception)
+catch(string)
+	handle2((string)exception)
+end
+
+Any record object or array may be "thrown" as an exception value. Catch blocks
+select the appropriate branch by the runtime type of the thrown object. The
+object is retrieved from the read-only value 'exception' and should be cast to
+the right type. Exceptions are raised with the 'throw' command. If none of the
+catch blocks match, the exception will be re-raised (this may cause a program
+crash if the exception propagates past the outermost level of handlers!).
+
+Variable declaration:
+
+let
+	i as int equal 10, j as int equal 20
+end
+
+var(a as int, b as float)
+
+with a as int, s as string do
+	write(s, a)
+end
+
+Apart from function parameters, variables may be declared in three main ways.
+'let' blocks declare variables, assign values (not optional), and add any non-
+primitive type variables to be tracked by the GC (don't use 'let' within a loop,
+it will cause chaos as well as being slow).
+
+'var' statements simply declare an uninitialised variable slot. These do not
+hook into the GC system and must be added manually with 'gc_trackvar'. These are
+the main way to declare globals.
+
+'with' blocks create a nested scope level. The variables are added to the GC
+system, and will go out of scope at the end of the block, freeing their values
+for collection if necessary. Note that it is *not* safe to jump out of a 'with'
+block using break or continue; use return or exceptions.
+
+Returning values:
+
+return expr end
+
+'return' works much the same as in plain C, except that its expression must be
+terminated with an explicit 'end'.
+
